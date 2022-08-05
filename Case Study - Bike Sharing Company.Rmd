@@ -1,0 +1,196 @@
+---
+title: "Case Study - Bike Sharing Company"
+author: "Shubham Raj"
+date: '2022-05-17'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Analysis of Cyclistic Rides for the Cyclistic Bike Share Company
+
+### Load required packages
+```{r}
+library(tidyverse)  #helps wrangle data
+library(lubridate)  #helps wrangle date attributes
+library(ggplot2)  #helps visualize data
+library(skimr) #for data summary statistics
+library(janitor)
+library(dplyr)
+```
+
+### Upload Divvy datasets from April 2021 to March 2022
+```{r echo=TRUE}
+apr21 <- read.csv('202104-divvy-tripdata.csv')
+may21 <- read.csv('202105-divvy-tripdata.csv')
+june21 <- read.csv('202106-divvy-tripdata.csv')
+july21 <- read.csv('202107-divvy-tripdata.csv')
+aug21 <- read.csv('202108-divvy-tripdata.csv')
+sep21 <- read.csv('202109-divvy-tripdata.csv')
+oct21 <- read.csv('202110-divvy-tripdata.csv')
+nov21 <- read.csv('202111-divvy-tripdata.csv')
+dec21 <- read.csv('202112-divvy-tripdata.csv')
+jan22 <- read.csv('202201-divvy-tripdata.csv')
+feb22 <- read.csv('202202-divvy-tripdata.csv')
+mar22 <- read.csv('202203-divvy-tripdata.csv')
+```
+
+## Compare the columns of all dataset for inconsistency
+```{r}
+compare_df_cols(apr21,may21,june21,july21,aug21,sep21,oct21,nov21,dec21,
+                jan22,feb22,mar22,return = "mismatch")
+#we do not find any mismatch column data
+```
+
+### Combining all datasets into one dataset all_trips
+```{r}
+all_trips <- rbind(apr21,may21,june21,july21,aug21,sep21,oct21,nov21,dec21,
+                   jan22,feb22,mar22)
+```
+
+### Inspect new dataset all_trips
+```{r}
+colnames(all_trips) #Get the list of column names
+str(all_trips) #Get the list of column names and data type
+```
+
+### We don't need latitude and longitude data so we will remove it
+```{r}
+all_trips <- all_trips %>%
+  select(-c(start_lat,start_lng,end_lat,end_lng))
+```
+
+### Inspect all_trips datasets after removing desired column
+```{r}
+colnames(all_trips)  #List of column names
+dim(all_trips)  #Dimensions of the data frame?
+str(all_trips)  #See list of columns and data types
+summary(all_trips)  #Statistical summary of data. Mainly for numerics
+table(all_trips$member_casual) #Number of each user type
+```
+
+### Add columns for date, day, month, year and day of the week
+```{r}
+all_trips$date <- as.Date(all_trips$started_at)
+all_trips$day <- format(as.Date(all_trips$date), "%d")
+all_trips$month <- format(as.Date(all_trips$date), "%m")
+all_trips$year <- format(as.Date(all_trips$date), "%Y")
+all_trips$day_of_week <- format(as.Date(all_trips$date), "%A")
+```
+
+### Add a "ride_length" calculation to all_trips (in seconds)
+```{r}
+all_trips <- all_trips %>%
+  mutate(ride_length=difftime(ended_at,started_at))
+```
+
+
+### Inspect the structure of all columns
+```{r}
+str(all_trips)
+```
+
+### Convert "ride_length" to numeric so help us perform calculations on data
+```{r}
+all_trips$ride_length <- as.numeric(as.character(all_trips$ride_length))
+is.numeric(all_trips$ride_length)
+```
+```{r count of ride_length<0}
+count(all_trips[(all_trips$ride_length<0),])
+```
+
+### Remove Bad data
+We will create a new version of the dataframe (v2) since we are removing data with ride_length<0
+```{r}
+all_tripsv2 <- all_trips[!(all_trips$ride_length <=0),]
+```
+
+### Conduct descriptive analysis on ride_length
+```{r}
+summary(all_tripsv2$ride_length) #summary stats of ride_length
+```
+### Compare members and casual riders
+comparison of the mean, median, maximum and minimum ride_length by member_casual
+```{r}
+aggregate(all_tripsv2$ride_length ~ all_tripsv2$member_casual, FUN = mean)
+aggregate(all_tripsv2$ride_length ~ all_tripsv2$member_casual, FUN = median)
+aggregate(all_tripsv2$ride_length ~ all_tripsv2$member_casual, FUN = max)
+aggregate(all_tripsv2$ride_length ~ all_tripsv2$member_casual, FUN = min)
+```
+
+### Average ride length for members and casul rider by the day of the week
+
+```{r}
+aggregate(all_tripsv2$ride_length ~ all_tripsv2$member_casual + all_tripsv2$day_of_week, FUN = mean)
+
+```
+```{r Order day_of_week}
+#Days of week are out of order so we will fix this
+all_tripsv2$day_of_week <- ordered(all_tripsv2$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+```
+
+### Average ride length for members and casul rider by the day of the week
+```{r}
+aggregate(all_tripsv2$ride_length ~ all_tripsv2$member_casual + all_tripsv2$day_of_week,FUN = mean)
+```
+
+### Analyze ridership data on weekday by each type of rider
+```{r}
+all_tripsv2 %>%
+   mutate(weekday = wday(started_at, label = TRUE)) %>%  #creates weekday field using wday()
+  group_by(member_casual, weekday) %>%  #groups by usertype and weekday
+  summarise(number_of_rides = n()				#calculates the number of rides and average duration 
+  ,average_duration = mean(ride_length)) %>% #calculates the average duration
+  arrange(member_casual, weekday) #sorting
+
+```
+
+### Visualize the number of rides per user type on week days
+```{r}
+all_tripsv2 %>%
+  mutate(weekday=wday(started_at,label = TRUE)) %>%
+  group_by(member_casual,weekday) %>%
+  summarise(number_of_rides = n(),avg_duration = mean(ride_length)) %>%
+  arrange(member_casual,weekday) %>%
+  ggplot(aes(x = weekday, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge")
+```
+
+### Visualize average ride duration by user type on week days
+```{r}
+all_tripsv2 %>% 
+  group_by(member_casual, day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge")
+```
+
+### Visualize number o each user type
+```{r}
+ggplot(all_tripsv2,aes(x = member_casual, fill = member_casual))+ geom_bar()
+```
+
+### Export the data to CSV for further analysis
+```{r}
+write.csv(all_tripsv2, "cyclistic_trip_data.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
